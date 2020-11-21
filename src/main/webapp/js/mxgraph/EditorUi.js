@@ -3613,6 +3613,8 @@ EditorUi.prototype.refresh = function(sizeDidChange)
 	{
 		this.menubarContainer.style.height = this.menubarHeight + 'px';
 		tmp += this.menubarHeight;
+	} else {
+		this.menubarHeight = 0;
 	}
 	
 	if (this.toolbar != null)
@@ -3777,7 +3779,8 @@ EditorUi.prototype.createSidebarFooterContainer = function()
 EditorUi.prototype.createUi = function()
 {
 	// Creates menubar
-	this.menubar = (this.editor.chromeless) ? null : this.menus.createMenubar(this.createDiv('geMenubar'));
+	const electronIpc = window.require('electron') ? window.require('electron').ipcRenderer : null;
+	this.menubar = (this.editor.chromeless || electronIpc) ? null : this.menus.createMenubar(this.createDiv('geMenubar'));
 	
 	if (this.menubar != null)
 	{
