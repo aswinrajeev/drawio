@@ -3781,9 +3781,21 @@ EditorUi.prototype.createSidebarFooterContainer = function()
  */
 EditorUi.prototype.createUi = function()
 {
-	// Creates menubar
+	// Fetched the electron ipc. Returns null if not used within electron
 	const electronIpc = window.require('electron') ? window.require('electron').ipcRenderer : null;
+	
+	// Creates menubar
 	this.menubar = (this.editor.chromeless || electronIpc) ? null : this.menus.createMenubar(this.createDiv('geMenubar'));
+
+	// Registers an ipc event listener to listen to the menu invokations from the desktop application
+	if (electronIpc != null) {
+		electronIpc.on('menuInvoked', (event, args) => {
+
+			// Extracts the action and invokes the corresponding function
+			const action = this.actions.get(args.key);
+			action.funct();
+		});
+	}
 	
 	if (this.menubar != null)
 	{
