@@ -83,6 +83,83 @@ Draw.loadPlugin(function(ui)
 		}
 	};
 
+	var xdm_e = decodeURIComponent(urlParams['site']);
+	var license = urlParams['atlas-lic'];
+
+	ui.remoteInvoke('checkConfLicense', [license, xdm_e], null, function(licenseValid)
+	{
+	    if (!licenseValid)
+	    {
+			ui.menus.get('file').funct = function(menu, parent)
+			{
+				menu.addItem(mxResources.get('licenseRequired'), null, function()
+				{
+					// do nothing
+				}, parent, null, false);
+			}
+			
+			ui.menus.get('insertAdvanced').funct = function(menu, parent)
+			{
+				menu.addItem(mxResources.get('licenseRequired'), null, function()
+				{
+					// do nothing
+				}, parent, null, false);
+			}
+			
+			if (typeof(MathJax) !== 'undefined')
+			{
+				ui.actions.get('mathematicalTypesetting').funct = function()
+				{
+					ui.alert(mxResources.get('licenseRequired'));
+				};
+			}
+			
+			EditorUi.prototype.insertPage = function(page, index)
+			{
+				this.alert(mxResources.get('licenseRequired'));
+			};
+			
+			Sidebar.prototype.searchEntries = function(searchTerms, count, page, success, error)
+			{
+				success();
+			};
+
+			Sidebar.prototype.insertSearchHint = function(div, searchTerm, count, page, results, len, more, terms)
+			{
+				var link = document.createElement('div');
+				link.className = 'geTitle';
+				link.style.cssText = 'background-color:#ffd350;border-radius:6px;color:black;' +
+					'border:1px solid black !important;text-align:center;white-space:normal;' +
+					'padding:6px 0px 6px 0px !important;margin:4px 4px 8px 2px;font-size:12px;';
+				mxUtils.write(link, mxResources.get('licenseRequired'));
+				div.appendChild(link);
+			};
+
+			DrawioFileSync.prototype.fileChangedNotify = function() 
+			{
+				//Disable RT syncing
+			};
+			
+			ui.importFiles = function() 
+			{
+				//Disable DnD and file import
+				ui.alert(mxResources.get('licenseRequired'));	
+			}
+			
+			//Disable comments
+			ui.getComments = function(success, error)
+			{
+				error({message: mxResources.get('licenseRequired')});
+			}
+			
+			ui.addComment = function(comment, success, error)
+			{
+				error();
+			}
+	    }
+	},
+	function(){});
+		
 	renameAction.funct = function()
 	{
 		var dlg = new FilenameDialog(ui, macroData.diagramDisplayName || "",
@@ -660,6 +737,187 @@ Draw.loadPlugin(function(ui)
 		});
 	});
 
+	//=============Custom Libraries in More Shapes ===================
+	function addImage(container, data, w, h, img) 
+	{
+		var ew = 100;
+		var eh = 100;
+		
+		var iw = w;
+		var ih = h;
+		
+		if (w > ui.maxImageSize || h > ui.maxImageSize)
+		{
+			var s = Math.min(1, Math.min(ui.maxImageSize / Math.max(1, w)), ui.maxImageSize / Math.max(1, h));
+			w *= s;
+			h *= s;
+		}
+		
+		if (iw > ih)
+		{
+			ih = Math.round(ih * ew / iw);
+			iw = ew;
+		}
+		else
+		{
+			iw = Math.round(iw * eh / ih);
+			ih = eh;
+		}
+		
+		var wrapper = document.createElement('div');
+		wrapper.setAttribute('draggable', 'true');
+		wrapper.style.display = 'inline-block';
+		wrapper.style.cursor = 'move';
+		
+		if (data != null)
+		{
+            var elt = document.createElement('img');
+            elt.setAttribute('src', data);
+			elt.style.width = iw + 'px';
+			elt.style.height = ih + 'px';
+			elt.style.margin = '10px';
+
+			elt.style.paddingBottom = Math.floor((eh - ih) / 2) + 'px';
+			elt.style.paddingLeft = Math.floor((ew - iw) / 2) + 'px';
+			
+			wrapper.appendChild(elt);
+		}
+		else if (img != null)
+		{
+			var cells = ui.stringToCells(Graph.decompress(img.xml));
+			
+			if (cells.length > 0)
+			{
+				ui.sidebar.createThumb(cells, ew, eh, wrapper, null, true, false);
+				
+				// Needs inline block on SVG for delete icon to appear on same line
+				wrapper.firstChild.style.display = 'inline-block';
+				wrapper.firstChild.style.cursor = '';
+			}
+		}
+		
+		container.appendChild(wrapper);
+	};
+	
+	var customLibraries = [];
+	
+	ui.actions.addAction('shapes...', mxUtils.bind(this, function()
+	{
+		ui.remoteInvoke('getCustomLibraries', null, null, function(libs)
+		{
+			customLibraries = libs;
+			
+			for(var i = 0; i < libs.length; i++) 
+			{
+				libs[i].imageCallback = mxUtils.bind(libs[i], function(preview) 
+				{
+					preview.innerHTML = '<img src="/images/spin.gif">';
+
+					ui.remoteInvoke('getFileContent', [this.downloadUrl], null, function(libContent)
+					{
+						try
+						{
+							preview.innerHTML = '';
+							doc = mxUtils.parseXml(libContent);
+							var images = JSON.parse(mxUtils.getTextContent(doc.documentElement));
+							
+							for(var i = 0; i < images.length; i++) 
+							{
+								addImage(preview, images[i].data, images[i].w, images[i].h, images[i]);
+							}
+						}
+						catch(e)
+						{
+							preview.innerHTML = mxResources.get('confAErrOccured');
+							console.log(e);
+						}
+					}, function(err)
+					{
+						preview.innerHTML = mxResources.get('errorLoadingFile');
+						console.log(err);
+					});
+				});
+			}
+			
+			var customLibsEntry = libs.length > 0? [{title : mxResources.get('customLib'), entries : libs}] : []; 
+			ui.showDialog(new MoreShapesDialog(ui, true, ui.sidebar.entries.concat(customLibsEntry)).container, 640, (isLocalStorage) ?
+					((mxClient.IS_IOS) ? 650 : 630) : 650, true, true);
+		}, function(err) 
+		{
+			console.log(err);
+			ui.showDialog(new MoreShapesDialog(ui, true, ui.sidebar.entries).container, 640, (isLocalStorage) ?
+					((mxClient.IS_IOS) ? 650 : 630) : 650, true, true);
+		});
+	}));
+
+    var showEntriesOld =  Sidebar.prototype.showEntries;
+	
+	Sidebar.prototype.showEntries = function(stc, remember, force) 
+	{
+		showEntriesOld.apply(this, arguments);
+		
+		if(stc == null)
+			return;
+		
+		var libIds = stc.split(';');
+		
+		for(var i = 0; i < customLibraries.length; i++) 
+		{
+			lib = customLibraries[i];
+			
+			if(mxUtils.indexOf(libIds, lib.id) != -1) 
+			{
+				ui.remoteInvoke('getFileContent', [lib.downloadUrl], null, mxUtils.bind(lib, function(libContent)
+				{
+					try
+					{
+						ui.loadLibrary(new RemoteLibrary(ui, libContent, this));
+					}
+					catch (e)
+					{
+						//Ignore 
+					}
+				}), function()
+				{
+					//Ignore
+				});
+			}
+			else 
+			{
+				ui.closeLibrary(new RemoteLibrary(ui, '', lib));
+			}
+		};
+	};
+
+    var isEntryVisibleOld = Sidebar.prototype.isEntryVisible;
+
+	Sidebar.prototype.isEntryVisible = function(key) 
+	{
+		var visible = isEntryVisibleOld.apply(this, arguments);
+		var cVisible = false;
+		
+		var customLibSelection = mxSettings.getCustomLibraries();
+		
+		for(var i = 0; i < customLibSelection.length; i++) 
+		{
+			try
+			{
+				var hash = customLibSelection[i];
+				
+				if (hash.charAt(0) == 'R')
+				{
+					if(JSON.parse(decodeURIComponent(hash.substr(1)))[0] == key)
+					{
+						cVisible = true;
+					}	
+				}
+			}
+			catch(e){} //ignore
+		}
+		
+		return visible || cVisible;
+	};
+
 	//=============Embed File with real-time collab support (based on remote invocation)
 	//Until app.min.js is propagated, this code is necessary
 	if (typeof EmbedFile === 'undefined')
@@ -1150,7 +1408,8 @@ Draw.loadPlugin(function(ui)
 		var actArgs = arguments;
 		var curFile = ui.getCurrentFile();
 		var desc = curFile.getDescriptor();
-
+		var isNewFile = desc == null || desc.key == null;
+		
 		if (exit)
 		{
 			//Prevent stpping the spinner early by creating our own spinner
@@ -1168,7 +1427,11 @@ Draw.loadPlugin(function(ui)
 				zIndex: 2e9 // The z-index (defaults to 2000000000)
 			});
 	
-			spinner.spin(document.body);
+			if (!isNewFile)
+			{
+				spinner.spin(document.body);
+			}
+			
 			allowAutoSave = false;
 			
 			if (desc != null)
@@ -1221,7 +1484,7 @@ Draw.loadPlugin(function(ui)
 			}
 		};
 		
-		if (desc == null || desc.key == null)
+		if (isNewFile)
 		{
 			//New files are saved directly and descriptor is added during publishing after creating the custom content
 			doActions();
